@@ -13,7 +13,6 @@
 - [Module Descriptions](#3-module-descriptions)
   - [BiggestPersonTracker](#31-biggestpersontracker--trackerpy)
   - [HumanActionPublisher](#32-humanactionpublisher--action_publisherpy)
-  - [FollowerFSMV2](#33-followerfsm v2--follower_fsm_v2py)
   - [PlatformHeightController](#34-platformheightcontroller--platform_ctrlpy)
 - [Installation & Setup](#4-installation--setup)
 - [Usage Guide](#5-usage-guide)
@@ -53,7 +52,7 @@ The system is composed of four ROS 2 nodes that communicate over topics:
 
 ## 3. Module Descriptions
 
-### 3.1 BiggestPersonTracker (`tracker.py`)
+### 3.1 BiggestPersonTracker
 
 Subscribes to the raw compressed camera feed, runs YOLO v11n inference on every frame to detect all persons (class 0), and selects the bounding box with the **largest pixel area** as the primary tracking target. The centre coordinates and area are published as a `Pose2D` message so that other nodes can use area as a proxy for distance.
 
@@ -67,7 +66,7 @@ Subscribes to the raw compressed camera feed, runs YOLO v11n inference on every 
 
 ---
 
-### 3.2 HumanActionPublisher (`action_publisher.py`)
+### 3.2 HumanActionPublisher
 
 Uses **MediaPipe Pose** to extract 33 skeleton landmarks from each camera frame at **5 Hz**. Joint angles are computed between hip–knee–ankle (leg angle) and shoulder–elbow–wrist (arm angle) to classify the human's current posture and gesture.
 
@@ -87,7 +86,7 @@ Uses **MediaPipe Pose** to extract 33 skeleton landmarks from each camera frame 
 
 ---
 
-### 3.3 FollowerFSMV2 (`follower_fsm_v2.py`)
+### 3.3 FollowerFSMV2
 
 The main motion controller. Consumes both the raw camera feed (for real-time bounding-box width feedback) and `/human_action` (for state transitions). A **Finite State Machine** drives velocity commands on `/cmd_vel`.
 
@@ -123,7 +122,7 @@ If bounding-box width exceeds `600 px` at any time, linear motion stops immediat
 
 ---
 
-### 3.4 PlatformHeightController (`platform_ctrl.py`)
+### 3.4 PlatformHeightController
 
 Controls a motorised height-adjustable platform via `JointTrajectory` messages. The platform height mirrors the human's posture so that a seated user's eye level is matched by the robot's onboard interface.
 
@@ -196,8 +195,6 @@ ros2 launch buddybot launch.launch.py
 ---
 
 ## 6. Configuration Parameters
-
-All key parameters are defined at the top of `follower_fsm_v2.py`:
 
 | Parameter | Default | Description |
 |---|---|---|
