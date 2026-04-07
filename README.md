@@ -2,7 +2,8 @@
 
 > **YOLO · MediaPipe · Finite State Machine · ROS 2**
 
-![System Overview](assets/Photo.jpg)
+![1](https://github.com/user-attachments/assets/5ac3650f-0aa4-4932-b161-53f88a7d15fd)
+
 
 
 https://github.com/user-attachments/assets/6a32c3fb-03b1-4017-95bf-57bd3f3b3c3a
