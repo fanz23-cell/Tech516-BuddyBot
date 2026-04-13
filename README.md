@@ -306,37 +306,53 @@ This is why the training pipeline and runtime pipeline are consistent:
 ---
 
 ## 8. How the FSM Uses Tracking and Action Results
+### 8.1 FollowerFSMV2
 
-The FSM is the decision layer of BuddyBot.
+The main motion controller. Consumes both the raw camera feed (for real-time bounding-box width feedback) and `/human_action` (for state transitions). A **Finite State Machine** drives velocity commands on `/cmd_vel`.
 
-It combines:
+![FSM Diagram](assets/FSM.png)
+FSM state transition diagram*
 
-- **YOLO result** -> where the person is and how far away they are
-- **action classification result** -> what the person is doing
+**States & Transitions**
 
-Then it decides what the robot should do next.
+| State | Entry Trigger | Robot Behaviour |
+|---|---|---|
+| `IDLE` | Default / 2nd wave | Stationary; ignores detections |
+| `FOLLOW` | 1st wave / walk posture | Moves forward if `bw < 300 px`; faces human |
+| `APPROACH_60` | stand posture | Approaches until `bw ≥ 300 px`, then stops |
+| `APPROACH_30` | sit/squat, or reach+stand | Approaches until `bw ≥ 450 px`, then stops |
+| `APPROACH_20` | reach + sit | Approaches until `bw ≥ 550 px`, then stops |
+| `RETREAT_60` | sit → stand transition | Reverses until `bw ≤ 300 px`, then → `FOLLOW` |
 
-Main states:
+**Spin-Search Recovery**
 
-- `IDLE`
-- `FOLLOW`
-- `APPROACH_60`
-- `APPROACH_30`
-- `APPROACH_20`
-- `RETREAT_60`
+If no person is detected for `lost_threshold = 5` consecutive frames and the robot has not yet achieved its current target, it rotates in place at `0.5 rad/s` until the person re-enters the frame.
 
-Typical logic:
+**Heading Control**
 
-- first `Wave` -> start service
-- second `Wave` -> stop service
-- `Walk` -> follow at a normal distance
-- `Standing` -> keep standard service distance
-- `Sitting` -> move closer and lower platform
-- `Reach Out` while sitting -> move to the closest interaction distance
-- stand after sitting -> retreat and restore height
+When the service is active the robot continuously corrects its yaw to keep the human centred. A ±40 px deadband suppresses micro-oscillations. Angular velocity is proportional to pixel drift:
 
-This is why BuddyBot is not just detecting or classifying.  
-It is using those perception results to produce meaningful service behaviour.
+```
+ω = −0.002 × drift
+```
+
+**Safety Stop**
+
+If bounding-box width exceeds `600 px` at any time, linear motion stops immediately regardless of FSM state.
+
+---
+
+### 8.2 PlatformHeightController
+
+Controls a motorised height-adjustable platform via `JointTrajectory` messages. The platform height mirrors the human's posture so that a seated user's eye level is matched by the robot's onboard interface.
+
+
+| Posture | Platform Height | Joint Angle |
+|---|---|---|
+| sit / squat | 40 cm | 0 rad (0°) |
+| stand / walk | 90 cm | ~6.28 rad (360°) |
+
+The system is activated by the **first wave only**; all subsequent waves are ignored by this node.
 
 ---
 
