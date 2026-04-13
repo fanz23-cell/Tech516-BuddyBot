@@ -397,21 +397,20 @@ This is the core story of BuddyBot:
 
 ---
 
-## 11. ROS 2 Communication
+## 11. System Architecture
 
-Core topics:
+The system is composed of four ROS 2 nodes that communicate over topics:
 
-| Topic | Meaning |
-|---|---|
-| `/image_raw/compressed` | camera input |
-| `/target_person_pos` | tracked target position from YOLO |
-| `/human_action` | predicted action label |
-| `/cmd_vel` | mobile base motion command |
-| `/gix_controller/joint_trajectory` | platform height command |
 
-ROS 2 connects perception, decision, and execution into one system.
+| Node | File | Subscribes | Publishes |
+|---|---|---|---|
+| `BiggestPersonTracker` | `tracker.py` | `/image_raw/compressed` | `/target_person_pos` |
+| `HumanActionPublisher` | `action_publisher.py` | `/image_raw/compressed` | `/human_action` |
+| `FollowerFSMV2` | `follower_fsm_v2.py` | `/image_raw/compressed`, `/human_action` | `/cmd_vel` |
+| `PlatformHeightController` | `platform_ctrl.py` | `/human_action` | `/gix_controller/joint_trajectory` |
 
 ---
+
 
 ## 12. Main Artifacts
 
