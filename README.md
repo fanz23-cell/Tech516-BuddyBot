@@ -340,64 +340,9 @@ It is using those perception results to produce meaningful service behaviour.
 
 ---
 
-## 9. Robot Motion and Platform Control
 
-After the FSM decides the current state, the robot executes two kinds of output.
 
-### 9.1 Mobile Base Control
-
-The robot base is controlled through `/cmd_vel`.
-
-This is used for:
-
-- turning toward the user
-- following the user
-- approaching the user
-- retreating when needed
-- stopping when service is inactive or the user is too close
-
-### 9.2 Height Control
-
-The platform is controlled through `/gix_controller/joint_trajectory`.
-
-This allows the robot to:
-
-- lower the platform for seated users
-- raise the platform for standing or walking users
-
-That is what makes the project service-oriented: the robot adapts not only its distance, but also its service height.
-
----
-
-## 10. Typical Interaction Example
-
-A complete interaction looks like this:
-
-1. the user appears in front of the robot
-2. YOLO detects the user and keeps the target centered
-3. the user waves
-4. MediaPipe + the trained model predict `Wave`
-5. the FSM starts the service and enters `FOLLOW`
-6. the user walks, and the robot follows
-7. the user sits down
-8. the model predicts `Sitting`
-9. the FSM commands the robot to move closer
-10. the platform lowers for seated interaction
-11. the user reaches out
-12. the model predicts `Reach Out`
-13. the robot approaches even closer
-14. the user stands up again
-15. the robot restores a more normal distance and platform height
-16. the user waves again
-17. the robot stops service and returns to `IDLE`
-
-This is the core story of BuddyBot:
-
-> The robot uses YOLO to know where the user is, uses MediaPipe plus a trained model to know what the user is doing, and uses an FSM to choose the correct service response.
-
----
-
-## 11. System Architecture
+## 9. System Architecture
 
 The system is composed of four ROS 2 nodes that communicate over topics:
 
@@ -412,7 +357,7 @@ The system is composed of four ROS 2 nodes that communicate over topics:
 ---
 
 
-## 12. Main Artifacts
+## 10. Main Artifacts
 
 - `pose_model.pth` -> trained action classifier
 - `pose_data.csv`, `motion_dataset.npz` -> processed pose dataset
@@ -425,7 +370,7 @@ These artifacts show both sides of the project:
 
 ---
 
-## 13. Installation
+## 11. Installation
 
 Requirements:
 
@@ -450,7 +395,7 @@ source install/setup.bash
 
 ---
 
-## 14. Running
+## 12. Running
 
 Launch the ROS 2 system:
 
@@ -472,7 +417,7 @@ ros2 run buddybot manual
 
 ---
 
-## 15. Summary
+## 13. Summary
 
 BuddyBot is a service-oriented human-robot interaction system with two perception backbones:
 
