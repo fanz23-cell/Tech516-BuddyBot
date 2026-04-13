@@ -13,110 +13,142 @@ https://github.com/user-attachments/assets/6a32c3fb-03b1-4017-95bf-57bd3f3b3c3a
 
 
 > **TurtleBot3 + ROS 2 Humble + MediaPipe Pose + Keypoint-Based Action Classification + FSM**
+BuddyBot is a service-oriented robot system that uses a camera to understand a user's position and body action, then converts that understanding into robot behaviour.
 
-BuddyBot is a service robot system that understands a user's body action from camera input and turns that action into robot behaviour.
+The project focuses on two core capabilities:
 
-Instead of classifying raw RGB frames directly, BuddyBot uses a structured pipeline:
+- **YOLO-based person tracking** for follow and distance control
+- **MediaPipe-based action understanding** for recognizing user intent
 
-**video -> MediaPipe pose keypoints -> coordinate features -> trained action classifier -> FSM -> robot action**
+Those two perception results are combined by an **FSM (Finite State Machine)** to control:
 
-This makes the system lightweight, explainable, and suitable for real-time interaction.
-
----
-
-## 1. Project Goal
-
-The goal of BuddyBot is not only to detect a person, but to understand the user's interaction state and respond appropriately.
-
-Example behaviours:
-
-- wave -> start or stop service
-- walk -> follow the user
-- sit -> move closer and lower the platform
-- reach out -> approach for closer interaction
-- stand up again -> return to a more normal distance
-
-So the core idea is:
-
-> **Use human action understanding to guide service behaviour.**
+- robot following and approach behaviour
+- retreat behaviour
+- platform height adjustment
 
 ---
 
-## 2. System Overview
+## 1. What This Project Does
 
-BuddyBot can be described in four layers:
+BuddyBot is not only a person-following robot. It is designed for service interaction.
 
-1. **Data Layer**  
-   Record and label user action videos.
+That means the robot should behave differently depending on what the user is doing:
 
-2. **Perception Layer**  
-   Use MediaPipe Pose to extract 33 body keypoints.
+- if the user waves, the robot starts or stops service
+- if the user walks, the robot follows
+- if the user sits, the robot moves closer
+- if the user reaches out, the robot moves even closer
+- if the user stands up again, the robot restores a more comfortable distance
 
-3. **Understanding Layer**  
-   Convert keypoints into features and classify the current action.
+So the central idea of the project is:
 
-4. **Behaviour Layer**  
-   Use an FSM to map actions to follow, approach, retreat, and platform-height control.
+> **Track the person with YOLO, understand the person's action with MediaPipe and a trained classifier, and use those results to drive service behaviour.**
 
 ---
 
-## 3. End-to-End Pipeline
+## 2. Full System Flow
 
 ```mermaid
 flowchart LR
-    A[Action Videos] --> B[MediaPipe Pose]
-    B --> C[33 Body Keypoints]
-    C --> D[Coordinate Features]
-    D --> E[Trained Action Classifier]
-    E --> F[Predicted Action]
-    F --> G[FSM]
-    G --> H[Base Motion]
-    G --> I[Platform Height]
+    A[Camera Stream] --> B[YOLO Person Detection]
+    A --> C[MediaPipe Pose]
+    B --> D[Target Center and Box Size]
+    C --> E[33 Body Keypoints]
+    E --> F[Keypoint Feature Vector]
+    F --> G[Trained Action Classifier]
+    G --> H[Predicted Human Action]
+    D --> I[FSM Decision Layer]
+    H --> I
+    I --> J[/cmd_vel: Base Motion]
+    I --> K[/gix_controller/joint_trajectory: Platform Height]
 ```
 
-### Runtime View
+This one diagram summarizes the whole project:
 
-```mermaid
-flowchart TD
-    CAM[Camera Stream] --> POSE[MediaPipe Pose]
-    POSE --> FEAT[Feature Vector]
-    FEAT --> CLS[Action Classifier]
-    CLS --> ACT[/human_action]
-    ACT --> FSM[FSM Controller]
-    FSM --> CMD[/cmd_vel]
-    ACT --> PLATFORM[Height Controller]
-    PLATFORM --> TRAJ[/gix_controller/joint_trajectory]
-```
+1. the camera provides the input
+2. YOLO finds and tracks the target person
+3. MediaPipe extracts the user's pose
+4. the trained classifier predicts the user's action
+5. the FSM combines target position and action result
+6. the robot moves and adjusts its service height
 
 ---
 
-## 4. Why Keypoint-Based Learning
+## 3. How YOLO Is Used for Following
 
-BuddyBot does not train directly on raw images because raw frames contain too much irrelevant information:
+YOLO is used to answer one basic question:
 
-- background
-- clothing
-- lighting
-- camera noise
+> **Where is the target person, and how far are they from the robot?**
 
-Instead, the system first extracts body pose and then learns from pose structure.
+### 3.1 Detection Logic
 
-Advantages:
+For each camera frame:
 
-- lower-dimensional input
-- faster training and inference
-- better focus on posture and motion
-- easier deployment on a robot
+1. run YOLO person detection
+2. keep only detections of class `person`
+3. choose the largest person bounding box as the service target
 
-In this project, MediaPipe is the **pose front-end**, and the classifier is the **action understanding back-end**.
+The reason for choosing the largest box is simple:
+
+- in a service scenario, the closest visible person is usually the one interacting with the robot
+- the largest bounding box is therefore used as the current target
+
+### 3.2 What Is Extracted from YOLO
+
+Once the target bounding box is selected, the robot uses:
+
+- **bounding-box center** -> to know whether the person is left or right in the image
+- **bounding-box width / size** -> as a rough distance cue
+
+This gives two pieces of information needed for movement:
+
+- **direction control**: how the robot should turn to face the user
+- **distance control**: whether the robot should move forward, stop, or retreat
+
+### 3.3 How Following Works
+
+The robot uses the target center to keep the user near the image center.
+
+- if the target is left of center, the robot turns left
+- if the target is right of center, the robot turns right
+- if the target is near the image center, the robot keeps heading
+
+At the same time, the robot uses bounding-box size to estimate whether the target is too far or too close.
+
+- if the box is too small, the target is far away -> move forward
+- if the box reaches the desired range -> stop advancing
+- if the box is too large, the target is too close -> stop or retreat
+
+This is the core of follow behaviour:
+
+```text
+camera -> YOLO -> target box
+       -> box center -> heading control
+       -> box size   -> distance control
+```
+
+### 3.4 Why YOLO Works Well Here
+
+YOLO is a good fit for this project because:
+
+- it detects people in real time
+- it is simple to deploy
+- it gives both target location and target size
+- it does not require extra depth hardware for basic service interaction
+
+So in BuddyBot, YOLO provides the **tracking and follow backbone**.
 
 ---
 
-## 5. Training Pipeline
+## 4. How Human Actions Are Recognized
 
-### Step 1: Collect Action Videos
+Tracking alone is not enough. The robot also needs to know:
 
-Record videos for service-related actions such as:
+> **What is the user doing right now?**
+
+To answer that, BuddyBot uses **MediaPipe Pose + a trained action classifier**.
+
+The main actions in the project are:
 
 - `Wave`
 - `Reach Out`
@@ -124,67 +156,165 @@ Record videos for service-related actions such as:
 - `Standing`
 - `Walk`
 
-### Step 2: Extract Pose Keypoints
+These actions are not recognized from raw images directly. Instead, the system first extracts pose keypoints and then classifies the action from those keypoints.
 
-Each video is processed frame by frame with MediaPipe Pose.
+---
+
+## 5. How MediaPipe Is Used
+
+MediaPipe Pose is used as the pose-estimation front end.
+
+For each frame, MediaPipe extracts **33 human body keypoints**, including:
+
+- shoulders
+- elbows
+- wrists
+- hips
+- knees
+- ankles
+
+If only 2-D coordinates are used, then each frame becomes:
+
+- 33 keypoints
+- each keypoint has `(x, y)`
+- total feature length = **66**
+
+So instead of feeding the classifier a full image, BuddyBot feeds it a **66-dimensional pose feature vector**.
+
+That is important because it removes a lot of irrelevant information such as:
+
+- background clutter
+- clothing appearance
+- lighting variation
+- camera noise
+
+In other words:
+
+MediaPipe turns an image frame into a clean body-structure representation, and the classifier learns actions from that structure.
+
+---
+
+## 6. How the Action Model Is Trained
+
+This is the training story of the project.
+
+### 6.1 Step 1: Record Action Videos
+
+First, videos are recorded for each target action:
+
+- wave
+- reach out
+- sitting
+- standing
+- walking
+
+Each action is recorded multiple times so the model can see natural variation in:
+
+- body shape
+- motion speed
+- small pose differences
+- viewpoint changes
+
+### 6.2 Step 2: Convert Videos into Pose Samples
+
+The recorded videos are processed frame by frame.
 
 For each valid frame:
 
-- detect 33 body landmarks
-- read landmark coordinates
-- flatten them into a numerical vector
-- pair the vector with the action label
+1. MediaPipe extracts 33 body keypoints
+2. the `(x, y)` coordinates are read out
+3. all keypoints are flattened into one feature vector
+4. the vector is paired with the action label
 
-### Step 3: Build the Dataset
+So the training sample is not an image.  
+It is:
 
-The pose-based samples are stored in files such as:
+```text
+pose feature vector + action label
+```
+
+### 6.3 Step 3: Build the Dataset
+
+All labeled pose samples are collected into dataset files such as:
 
 - `pose_data.csv`
 - `motion_dataset.npz`
 
-### Step 4: Train the Action Model
+These files are the processed training data used by the classifier.
 
-The model learns to map keypoint feature vectors to action labels.
+### 6.4 Step 4: Train the Classifier
 
-Input:
+The classifier is trained to map:
 
-- 33 keypoints
-- `(x, y)` per keypoint
-- 66-D feature vector
+- **input**: 66-D keypoint vector
+- **output**: action category
 
-Output:
+Its job is to learn which pose patterns correspond to which actions.
 
-- action class probabilities
+For example:
 
-The trained weights are saved as:
+- certain upper-body patterns correspond to `Wave`
+- forward arm extension corresponds to `Reach Out`
+- lower-body bending patterns correspond to `Sitting`
+- upright posture patterns correspond to `Standing`
+
+After training, the learned weights are saved as:
 
 - `pose_model.pth`
 
----
-
-## 6. Runtime Inference
-
-During live operation, the robot repeats this loop:
-
-1. capture a camera frame
-2. run MediaPipe Pose
-3. build the same keypoint feature vector used in training
-4. feed the vector into the trained model
-5. get the predicted action
-6. publish the action to the behaviour layer
-
-In short:
+So the full training chain is:
 
 ```text
-camera -> pose keypoints -> feature vector -> trained model -> action label
+action videos
+  -> MediaPipe pose extraction
+  -> keypoint coordinate vectors
+  -> labeled dataset
+  -> classifier training
+  -> trained action model
 ```
 
 ---
 
-## 7. Decision Layer: FSM
+## 7. How Action Recognition Runs Online
 
-Action recognition tells the robot what the user is doing.  
-The FSM tells the robot what it should do next.
+During live robot operation, the same idea is used online.
+
+For each frame:
+
+1. capture the current image
+2. run MediaPipe Pose
+3. extract the same 66-D feature vector used during training
+4. send that vector into the trained classifier
+5. get the predicted action label
+6. publish the result to the robot control logic
+
+So the online inference chain is:
+
+```text
+camera frame
+  -> MediaPipe keypoints
+  -> feature vector
+  -> trained classifier
+  -> predicted action
+```
+
+This is why the training pipeline and runtime pipeline are consistent:
+
+- offline: videos are converted into pose features for training
+- online: live frames are converted into pose features for prediction
+
+---
+
+## 8. How the FSM Uses Tracking and Action Results
+
+The FSM is the decision layer of BuddyBot.
+
+It combines:
+
+- **YOLO result** -> where the person is and how far away they are
+- **action classification result** -> what the person is doing
+
+Then it decides what the robot should do next.
 
 Main states:
 
@@ -199,105 +329,120 @@ Typical logic:
 
 - first `Wave` -> start service
 - second `Wave` -> stop service
+- `Walk` -> follow at a normal distance
 - `Standing` -> keep standard service distance
 - `Sitting` -> move closer and lower platform
 - `Reach Out` while sitting -> move to the closest interaction distance
 - stand after sitting -> retreat and restore height
 
-This keeps the robot behaviour stable and explainable.
+This is why BuddyBot is not just detecting or classifying.  
+It is using those perception results to produce meaningful service behaviour.
 
 ---
 
-## 8. Robot Execution
+## 9. Robot Motion and Platform Control
 
-After the FSM selects a state, BuddyBot executes behaviour in two ways:
+After the FSM decides the current state, the robot executes two kinds of output.
 
-### Mobile Base
+### 9.1 Mobile Base Control
 
-The base is controlled through `/cmd_vel` to:
+The robot base is controlled through `/cmd_vel`.
 
-- follow
-- approach
-- retreat
-- stop
+This is used for:
 
-### Height-Adjustable Platform
+- turning toward the user
+- following the user
+- approaching the user
+- retreating when needed
+- stopping when service is inactive or the user is too close
 
-The platform is controlled through `/gix_controller/joint_trajectory` to:
+### 9.2 Height Control
 
-- lower for seated interaction
-- raise for standing or walking interaction
+The platform is controlled through `/gix_controller/joint_trajectory`.
 
-This is what makes BuddyBot a service robot rather than only a tracking robot.
+This allows the robot to:
 
----
+- lower the platform for seated users
+- raise the platform for standing or walking users
 
-## 9. Typical Interaction Story
-
-1. The user appears in front of the robot.
-2. The camera captures the user's motion.
-3. MediaPipe extracts body keypoints.
-4. The trained model predicts `Wave`.
-5. The FSM starts service and the robot enters `FOLLOW`.
-6. The user sits down.
-7. The model predicts `Sitting`.
-8. The robot moves closer and lowers the platform.
-9. The user reaches out.
-10. The model predicts `Reach Out`.
-11. The robot approaches even closer.
-12. The user stands up.
-13. The robot restores normal distance and platform height.
-14. The user waves again.
-15. The FSM ends service and the robot returns to `IDLE`.
-
-This is the main story of the project:
-
-> The robot reacts not only to where the user is, but to what the user is doing.
+That is what makes the project service-oriented: the robot adapts not only its distance, but also its service height.
 
 ---
 
-## 10. ROS 2 View
+## 10. Typical Interaction Example
+
+A complete interaction looks like this:
+
+1. the user appears in front of the robot
+2. YOLO detects the user and keeps the target centered
+3. the user waves
+4. MediaPipe + the trained model predict `Wave`
+5. the FSM starts the service and enters `FOLLOW`
+6. the user walks, and the robot follows
+7. the user sits down
+8. the model predicts `Sitting`
+9. the FSM commands the robot to move closer
+10. the platform lowers for seated interaction
+11. the user reaches out
+12. the model predicts `Reach Out`
+13. the robot approaches even closer
+14. the user stands up again
+15. the robot restores a more normal distance and platform height
+16. the user waves again
+17. the robot stops service and returns to `IDLE`
+
+This is the core story of BuddyBot:
+
+> The robot uses YOLO to know where the user is, uses MediaPipe plus a trained model to know what the user is doing, and uses an FSM to choose the correct service response.
+
+---
+
+## 11. ROS 2 Communication
 
 Core topics:
 
 | Topic | Meaning |
 |---|---|
 | `/image_raw/compressed` | camera input |
+| `/target_person_pos` | tracked target position from YOLO |
 | `/human_action` | predicted action label |
-| `/cmd_vel` | mobile base command |
+| `/cmd_vel` | mobile base motion command |
 | `/gix_controller/joint_trajectory` | platform height command |
 
-ROS 2 is used to connect perception, decision, and execution into one robotic system.
+ROS 2 connects perception, decision, and execution into one system.
 
 ---
 
-## 11. Key Assets
+## 12. Main Artifacts
 
-- `pose_model.pth` -> trained action model
-- `pose_data.csv`, `motion_dataset.npz` -> pose-based dataset
+- `pose_model.pth` -> trained action classifier
+- `pose_data.csv`, `motion_dataset.npz` -> processed pose dataset
 - `assets/design.png`, `assets/FSM.png` -> design illustrations
 
-The repository contains both the learning pipeline and the deployed robot pipeline.
+These artifacts show both sides of the project:
+
+- the **training pipeline** for learned action recognition
+- the **runtime pipeline** for deployed robot service behaviour
 
 ---
 
-## 12. Installation
+## 13. Installation
 
 Requirements:
 
 - Ubuntu 22.04
 - ROS 2 Humble
 - Python 3.10+
-- TurtleBot3 or similar base
+- TurtleBot3 or similar mobile base
 - camera input
 
-Install Python dependencies:
+Install dependencies:
 
 ```bash
 pip install ultralytics mediapipe opencv-python numpy torch torchvision
 ```
 
-Build:
+Build the ROS 2 package:
 
 ```bash
 colcon build --packages-select buddybot
@@ -306,7 +451,7 @@ source install/setup.bash
 
 ---
 
-## 13. Running
+## 14. Running
 
 Launch the ROS 2 system:
 
@@ -314,13 +459,13 @@ Launch the ROS 2 system:
 ros2 launch buddybot launch.launch.py
 ```
 
-Run the learned action pipeline:
+Run the learned action-recognition pipeline:
 
 ```bash
 python3 buddybot/model_gesture.py
 ```
 
-Manual testing:
+For manual behaviour testing:
 
 ```bash
 ros2 run buddybot manual
@@ -328,45 +473,19 @@ ros2 run buddybot manual
 
 ---
 
-## 14. Why This Design
+## 15. Summary
 
-This design separates the project into two clear questions:
+BuddyBot is a service-oriented human-robot interaction system with two perception backbones:
 
-1. **What is the user doing?**  
-   Answered by MediaPipe + the trained action classifier.
+- **YOLO** for target tracking and follow control
+- **MediaPipe + trained classifier** for human action recognition
 
-2. **What should the robot do next?**  
-   Answered by the FSM.
+Those outputs are fused by an **FSM** to generate:
 
-That separation makes the system:
+- follow behaviour
+- approach and retreat behaviour
+- height-adjustable service behaviour
 
-- easier to explain
-- easier to debug
-- easier to extend
+So the full logic of the project is:
 
----
-
-## 15. Limitations
-
-- limited action vocabulary
-- dependence on pose quality
-- weaker performance under occlusion or extreme viewpoints
-- limited temporal modelling
-- not primarily designed for multi-person interaction
-
----
-
-## 16. Summary
-
-BuddyBot is a service-oriented human-robot interaction system that turns body action into service behaviour through a structured learned pipeline:
-
-**video -> pose keypoints -> feature vector -> trained classifier -> FSM -> robot control**
-
-Its main contribution is combining:
-
-- pose-based action understanding,
-- learned classification,
-- explainable decision logic,
-- and physically adaptive robot service behaviour
-
-in one ROS 2 system.
+**camera -> YOLO tracking + MediaPipe pose -> trained action classification -> FSM -> robot service action**
