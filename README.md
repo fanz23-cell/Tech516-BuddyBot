@@ -306,7 +306,21 @@ This is why the training pipeline and runtime pipeline are consistent:
 ---
 
 ## 8. How the FSM Uses Tracking and Action Results
-### 8.1 FollowerFSMV2
+
+### 8.1 BiggestPersonTracker
+
+Subscribes to the raw compressed camera feed, runs YOLO v11n inference on every frame to detect all persons (class 0), and selects the bounding box with the **largest pixel area** as the primary tracking target. The centre coordinates and area are published as a `Pose2D` message so that other nodes can use area as a proxy for distance.
+
+**Published topic: `/target_person_pos` (`geometry_msgs/Pose2D`)**
+
+| Field | Meaning |
+|---|---|
+| `x` | Horizontal pixel centre of the bounding box |
+| `y` | Vertical pixel centre of the bounding box |
+| `theta` | Bounding-box pixel area (distance proxy) |
+
+
+### 8.2 FollowerFSMV2
 
 The main motion controller. Consumes both the raw camera feed (for real-time bounding-box width feedback) and `/human_action` (for state transitions). A **Finite State Machine** drives velocity commands on `/cmd_vel`.
 
@@ -342,7 +356,7 @@ If bounding-box width exceeds `600 px` at any time, linear motion stops immediat
 
 ---
 
-### 8.2 PlatformHeightController
+### 8.3 PlatformHeightController
 
 Controls a motorised height-adjustable platform via `JointTrajectory` messages. The platform height mirrors the human's posture so that a seated user's eye level is matched by the robot's onboard interface.
 
